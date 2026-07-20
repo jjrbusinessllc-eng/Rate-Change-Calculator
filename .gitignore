@@ -1,0 +1,6 @@
+node_modules/
+package-lock.json
+*.log
+# local verification scratch files
+_smoke.mjs
+_shot.mjs
