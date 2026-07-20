@@ -137,6 +137,19 @@
       .change-row .time-in { flex: 1 1 100%; }
     }
 
+    .batch-row { display: flex; gap: 8px; align-items: center; }
+    .batch-row .batch-label { flex: 1 1 55%; }
+    .batch-row .batch-vol { flex: 1 1 45%; }
+    input[type="text"] {
+      width: 100%; font: inherit; padding: 12px 12px; border: 1px solid var(--line);
+      border-radius: 10px; background: var(--panel-2); color: var(--ink); -webkit-appearance: none;
+    }
+    @media (max-width: 520px) {
+      .batch-row { flex-wrap: wrap; }
+      .batch-row .batch-label, .batch-row .batch-vol { flex: 1 1 100%; }
+    }
+    table.seg tr.stopped td { color: var(--warn); }
+
     details.helper { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 10px; }
     details.helper summary { cursor: pointer; color: var(--accent); font-size: .85rem; font-weight: 600; }
     details.helper .two { display: flex; gap: 10px; margin-top: 10px; }
@@ -236,10 +249,29 @@
           <div class="changes-list" id="a-changes"></div>
           <button class="btn small" id="a-add-change" type="button">+ Add rate change</button>
         </div>
+
+        <div class="field">
+          <label class="lab">Upcoming batches <span class="hint">— optional; the batches behind the first, in order (each batch's volume)</span></label>
+          <div class="changes-list" id="a-batches"></div>
+          <button class="btn small" id="a-add-batch" type="button">+ Add batch</button>
+        </div>
       </div>
 
       <div class="card result" id="a-result" aria-live="polite">
         <!-- rendered -->
+      </div>
+
+      <div class="card hidden" id="a-batch-card">
+        <h2>Batch arrival schedule</h2>
+        <div class="table-wrap">
+          <table class="seg" id="a-batch-table">
+            <thead>
+              <tr><th>Batch</th><th>Volume (bbl)</th><th>Cumulative (bbl)</th><th>ETA</th><th>Arrives in</th><th>Run time</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="unit-readout" style="margin-top:10px">Each batch's interface reaches the point when the cumulative pumped volume is reached. Rate changes above apply to every batch.</div>
       </div>
 
       <div class="card" id="a-breakdown-card">
@@ -293,9 +325,14 @@
 
   <script type="module">
     import {
-      computeSchedule, steadyArrivalMs, requiredRate,
+      computeSchedule, computeBatchSchedule, steadyArrivalMs, requiredRate,
       formatDuration, formatNumber, bphToBpd, bphToGpm,
     } from './calc.js';
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
 
     const $ = (id) => document.getElementById(id);
     const STORE_KEY = 'rcc.state.v1';
@@ -386,6 +423,34 @@
       onInput();
     });
 
+    // ---------- upcoming-batch rows ----------
+    const batchesList = $('a-batches');
+    function makeBatchRow(label = '', vol = '') {
+      const row = document.createElement('div');
+      row.className = 'batch-row';
+      row.innerHTML = `
+        <input type="text" class="batch-label" placeholder="Batch name (optional)" aria-label="Batch name" />
+        <input type="number" class="batch-vol" inputmode="decimal" min="0" step="any" placeholder="volume (bbl)" aria-label="Batch volume (bbl)" />
+        <button class="icon-x" type="button" title="Remove" aria-label="Remove batch">✕</button>`;
+      row.querySelector('.batch-label').value = label;
+      row.querySelector('.batch-vol').value = vol;
+      row.querySelector('.batch-label').addEventListener('input', onInput);
+      row.querySelector('.batch-vol').addEventListener('input', onInput);
+      row.querySelector('.icon-x').addEventListener('click', () => { row.remove(); onInput(); });
+      return row;
+    }
+    function readBatches() {
+      // Keep every row in order; computeBatchSchedule ignores blank/zero volumes.
+      return [...batchesList.querySelectorAll('.batch-row')].map((row) => ({
+        label: row.querySelector('.batch-label').value,
+        volume: num(row.querySelector('.batch-vol').value),
+      }));
+    }
+    $('a-add-batch').addEventListener('click', () => {
+      batchesList.appendChild(makeBatchRow());
+      onInput();
+    });
+
     // ---------- volume helper (total − pumped) ----------
     // Only runs when the total/pumped fields themselves change, so it never
     // clobbers a "Barrels to go" value the operator typed directly.
@@ -416,6 +481,9 @@
           changes: [...changesList.querySelectorAll('.change-row')].map((r) => ({
             rate: r.querySelector('.rate-in').value, time: r.querySelector('.time-in').value,
           })),
+          batches: [...batchesList.querySelectorAll('.batch-row')].map((r) => ({
+            label: r.querySelector('.batch-label').value, vol: r.querySelector('.batch-vol').value,
+          })),
         },
         b: {
           vol: $('b-vol').value, start: $('b-start').value,
@@ -443,12 +511,22 @@
       $('a-vol').value = a.vol ?? ''; $('a-total').value = a.total ?? ''; $('a-pumped').value = a.pumped ?? '';
       $('a-start').value = a.start || toLocalInput(now); $('a-rate').value = a.rate ?? '';
       (a.changes || []).forEach((c) => changesList.appendChild(makeChangeRow(c.rate, c.time)));
+      (a.batches || []).forEach((bb) => batchesList.appendChild(makeBatchRow(bb.label, bb.vol)));
       $('b-vol').value = b.vol ?? ''; $('b-start').value = b.start || toLocalInput(now);
       $('b-target').value = b.target || ''; $('b-current').value = b.current ?? '';
     }
 
     // ---------- render ----------
-    let lastArrival = null; // epoch ms for the live countdown ticker (Mode A)
+    let lastArrival = null;      // epoch ms for the primary live countdown (Mode A)
+    let batchCountdowns = [];    // [{ el, arrivalMs }] for each batch-schedule row
+
+    function shortCountdown(arrivalMs) {
+      if (arrivalMs == null) return '—';
+      const diff = arrivalMs - Date.now();
+      return diff >= 0
+        ? `in ${formatDuration(diff, { seconds: diff < 3600000 })}`
+        : `past ${formatDuration(-diff, { seconds: -diff < 3600000 })}`;
+    }
 
     function render() {
       for (const k of Object.keys(tabs)) {
@@ -463,6 +541,7 @@
       const startMs = parseLocalInput($('a-start').value);
       const initialRate = num($('a-rate').value);
       const changes = readChanges();
+      const batches = readBatches();
       const res = computeSchedule({ startMs, volumeToGo, initialRate, changes });
       const out = $('a-result');
       const segBody = $('a-seg').querySelector('tbody');
@@ -472,12 +551,17 @@
       if (!res.ok) {
         out.innerHTML = `<div class="banner warn">${res.message}</div>`;
         segBody.innerHTML = ''; bd.classList.add('hidden');
+        renderBatchTable(null);
         return;
       }
+
+      const batchRes = computeBatchSchedule({ startMs, volumeToGo, initialRate, changes, batches });
+
       if (!res.arrived) {
         out.innerHTML = `<div class="banner bad">${res.message}</div>`;
         renderSegments(segBody, res.segments, startMs, null);
         bd.classList.remove('hidden');
+        renderBatchTable(batchRes.ok ? batchRes.rows : null);
         return;
       }
 
@@ -508,6 +592,36 @@
       tickCountdown();
       renderSegments(segBody, res.segments, startMs, res.arrivalMs);
       bd.classList.remove('hidden');
+      renderBatchTable(batchRes.ok ? batchRes.rows : null);
+    }
+
+    function renderBatchTable(rows) {
+      const card = $('a-batch-card');
+      const tbody = $('a-batch-table').querySelector('tbody');
+      batchCountdowns = [];
+      // Only show the schedule once there's at least one following batch.
+      if (!rows || rows.length <= 1) { card.classList.add('hidden'); tbody.innerHTML = ''; return; }
+
+      tbody.innerHTML = rows.map((r) => {
+        const arrived = r.arrivalMs != null;
+        const eta = arrived
+          ? `${fmtClock(r.arrivalMs)} <span style="color:var(--ink-soft)">${fmtDate(r.arrivalMs)}</span>`
+          : 'never';
+        return `<tr class="${arrived ? '' : 'stopped'}">
+          <td>${escapeHtml(r.label)}</td>
+          <td>${formatNumber(r.deltaVolume)}</td>
+          <td>${formatNumber(r.cumulative)}</td>
+          <td>${eta}</td>
+          <td class="cd" data-arr="${arrived ? r.arrivalMs : ''}">${arrived ? shortCountdown(r.arrivalMs) : '—'}</td>
+          <td>${arrived ? formatDuration(r.totalHours * 3600000) : '—'}</td>
+        </tr>`;
+      }).join('');
+
+      tbody.querySelectorAll('td.cd').forEach((td) => {
+        const arr = td.getAttribute('data-arr');
+        if (arr) batchCountdowns.push({ el: td, arrivalMs: Number(arr) });
+      });
+      card.classList.remove('hidden');
     }
 
     function renderSegments(tbody, segments, startMs, arrivalMs) {
@@ -532,14 +646,18 @@
 
     function tickCountdown() {
       const el = $('a-countdown');
-      if (!el || lastArrival == null) return;
-      const diff = lastArrival - Date.now();
-      if (diff >= 0) {
-        el.classList.remove('overdue');
-        el.textContent = `Arrives in ${formatDuration(diff, { seconds: diff < 3600000 })}`;
-      } else {
-        el.classList.add('overdue');
-        el.textContent = `Past ETA by ${formatDuration(-diff, { seconds: -diff < 3600000 })}`;
+      if (el && lastArrival != null) {
+        const diff = lastArrival - Date.now();
+        if (diff >= 0) {
+          el.classList.remove('overdue');
+          el.textContent = `Arrives in ${formatDuration(diff, { seconds: diff < 3600000 })}`;
+        } else {
+          el.classList.add('overdue');
+          el.textContent = `Past ETA by ${formatDuration(-diff, { seconds: -diff < 3600000 })}`;
+        }
+      }
+      for (const { el: cell, arrivalMs } of batchCountdowns) {
+        if (cell.isConnected) cell.textContent = shortCountdown(arrivalMs);
       }
     }
 

@@ -194,6 +194,66 @@ export function requiredRate({ startMs, volumeToGo, targetMs }) {
   return { ok: true, rate: volumeToGo / hours, hours, message: '' };
 }
 
+// ---- Multiple back-to-back batches ------------------------------------------
+
+/**
+ * Arrival times for a sequence of batches moving nose-to-tail down the line,
+ * all sharing one rate schedule.
+ *
+ * The first batch is the primary "volume to go" (its interface arrives when the
+ * cumulative pumped volume reaches `volumeToGo`). Each following batch adds its
+ * own volume to the running total, so its interface arrives when the cumulative
+ * pumped volume reaches that larger total. Scheduled rate changes apply to every
+ * batch, since the schedule simply keeps running into the future.
+ *
+ * @param {Object} opts
+ * @param {number} opts.startMs
+ * @param {number} opts.volumeToGo   Barrels to the first batch's interface (> 0).
+ * @param {number} opts.initialRate  BPH in force from startMs.
+ * @param {Array<{timeMs:number, rate:number}>} [opts.changes]
+ * @param {Array<{label?:string, volume:number}>} [opts.batches]  Following batches, in order.
+ * @returns {{ ok:boolean, message:string, rows: Array<{
+ *   index:number, label:string, deltaVolume:number, cumulative:number,
+ *   arrivalMs:number|null, totalHours:number|null, arrived:boolean, reason:string
+ * }> }}
+ */
+export function computeBatchSchedule({ startMs, volumeToGo, initialRate, changes = [], batches = [] }) {
+  const first = computeSchedule({ startMs, volumeToGo, initialRate, changes });
+  if (first.reason === 'invalid') {
+    return { ok: false, message: first.message, rows: [] };
+  }
+
+  const rows = [{
+    index: 1,
+    label: 'Batch 1',
+    deltaVolume: volumeToGo,
+    cumulative: volumeToGo,
+    arrivalMs: first.arrivalMs,
+    totalHours: first.totalHours,
+    arrived: first.arrived,
+    reason: first.reason,
+  }];
+
+  let cumulative = volumeToGo;
+  const following = batches.filter((b) => isFiniteNumber(b.volume) && b.volume > 0);
+  following.forEach((b, i) => {
+    cumulative += b.volume;
+    const r = computeSchedule({ startMs, volumeToGo: cumulative, initialRate, changes });
+    rows.push({
+      index: i + 2,
+      label: b.label && String(b.label).trim() ? String(b.label).trim() : `Batch ${i + 2}`,
+      deltaVolume: b.volume,
+      cumulative,
+      arrivalMs: r.arrivalMs,
+      totalHours: r.totalHours,
+      arrived: r.arrived,
+      reason: r.reason,
+    });
+  });
+
+  return { ok: true, message: '', rows };
+}
+
 // ---- Formatting -------------------------------------------------------------
 
 /**
