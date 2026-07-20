@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   computeSchedule,
+  computeBatchSchedule,
   steadyArrivalMs,
   requiredRate,
   formatDuration,
@@ -157,6 +158,73 @@ test('requiredRate: 12000 bbl in 3h needs 4000 BPH', () => {
 test('requiredRate: target not after start is rejected', () => {
   const r = requiredRate({ startMs: T0, volumeToGo: 12000, targetMs: T0 });
   assert.equal(r.ok, false);
+});
+
+test('batch schedule: back-to-back batches at a steady rate', () => {
+  // 10000 bbl to first interface @5000 BPH => 2h. Then two 5000-bbl batches.
+  // Cumulative 15000 => 3h, 20000 => 4h.
+  const r = computeBatchSchedule({
+    startMs: T0,
+    volumeToGo: 10000,
+    initialRate: 5000,
+    batches: [{ label: 'WTI', volume: 5000 }, { volume: 5000 }],
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.rows.length, 3);
+  assert.equal(r.rows[0].label, 'Batch 1');
+  assert.equal(r.rows[0].arrivalMs, at(2));
+  assert.equal(r.rows[1].label, 'WTI');
+  assert.equal(r.rows[1].cumulative, 15000);
+  assert.equal(r.rows[1].arrivalMs, at(3));
+  assert.equal(r.rows[2].label, 'Batch 3'); // no label provided -> default
+  assert.equal(r.rows[2].cumulative, 20000);
+  assert.equal(r.rows[2].arrivalMs, at(4));
+});
+
+test('batch schedule: a rate change shifts every downstream batch', () => {
+  // 10000 @5000 for 1h (5000 bbl), then cut to 2500 BPH.
+  // Batch 1 (10000): 1h + 5000/2500=2h => 3h.
+  // Batch 2 (+6000 => 16000): remaining after 10000 is 6000 @2500 = 2.4h => 5.4h.
+  const r = computeBatchSchedule({
+    startMs: T0,
+    volumeToGo: 10000,
+    initialRate: 5000,
+    changes: [{ timeMs: at(1), rate: 2500 }],
+    batches: [{ volume: 6000 }],
+  });
+  assert.equal(r.rows[0].arrivalMs, at(3));
+  assert.equal(r.rows[1].arrivalMs, at(5.4));
+});
+
+test('batch schedule: blank/zero batch volumes are ignored', () => {
+  const r = computeBatchSchedule({
+    startMs: T0,
+    volumeToGo: 8000,
+    initialRate: 4000,
+    batches: [{ volume: 0 }, { volume: NaN }, { volume: 4000 }],
+  });
+  assert.equal(r.rows.length, 2); // primary + the one valid batch
+  assert.equal(r.rows[1].cumulative, 12000);
+  assert.equal(r.rows[1].arrivalMs, at(3));
+});
+
+test('batch schedule: invalid primary volume returns not ok', () => {
+  const r = computeBatchSchedule({ startMs: T0, volumeToGo: 0, initialRate: 5000, batches: [{ volume: 100 }] });
+  assert.equal(r.ok, false);
+});
+
+test('batch schedule: stopped flow yields null arrivals but stays ok', () => {
+  const r = computeBatchSchedule({
+    startMs: T0,
+    volumeToGo: 10000,
+    initialRate: 5000,
+    changes: [{ timeMs: at(0.5), rate: 0 }],
+    batches: [{ volume: 5000 }],
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.rows[0].arrived, false);
+  assert.equal(r.rows[0].arrivalMs, null);
+  assert.equal(r.rows[1].arrivalMs, null);
 });
 
 test('unit conversions', () => {
