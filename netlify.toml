@@ -1,0 +1,16 @@
+# Static site — no build step. index.html + calc.js are served straight from the repo root.
+# Connect this repo to the Netlify site "r-c-calculator" so every push to the
+# deploy branch publishes automatically (replaces the manual drag-and-drop deploy).
+[build]
+  publish = "."
+
+# Long-cache the logic module but always revalidate the HTML entry point.
+[[headers]]
+  for = "/calc.js"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

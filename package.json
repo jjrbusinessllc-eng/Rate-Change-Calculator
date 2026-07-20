@@ -1,0 +1,10 @@
+{
+  "name": "rate-change-calculator",
+  "version": "1.0.0",
+  "description": "Pipeline rate change / arrival time calculator for liquids pipeline operations.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}
