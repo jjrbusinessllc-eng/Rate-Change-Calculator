@@ -6,6 +6,13 @@
   <meta name="color-scheme" content="light dark" />
   <meta name="description" content="Pipeline rate change calculator — arrival times for liquids pipeline operations, with scheduled rate changes." />
   <title>Pipeline Rate Change Calculator</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#0b6bcb" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Rate Change" />
+  <link rel="apple-touch-icon" href="./icon-180.png" />
   <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgcng9IjIyIiBmaWxsPSIjMGI2YmNiIi8+PHBhdGggZD0iTTUwIDE4YzAgMCAyNCAyNyAyNCA0NWEyNCAyNCAwIDEgMS00OCAwYzAtMTggMjQtNDUgMjQtNDV6IiBmaWxsPSIjZmZmZmZmIi8+PGNpcmNsZSBjeD0iNDIiIGN5PSI2MCIgcj0iNyIgZmlsbD0iIzBiNmJjYiIvPjwvc3ZnPg==" />
   <style>
     :root {
@@ -145,15 +152,16 @@
     }
 
     .batch-row { display: flex; gap: 8px; align-items: center; }
-    .batch-row .batch-label { flex: 1 1 55%; }
-    .batch-row .batch-vol { flex: 1 1 45%; }
+    .batch-row .batch-num { flex: 0 0 auto; min-width: 76px; text-align: center; font-weight: 700; font-size: .85rem;
+      color: var(--ink-soft); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 8px; }
+    .batch-row .batch-vol { flex: 1 1 auto; }
+    input.share-link { text-overflow: ellipsis; font-family: var(--mono); font-size: .72rem; color: var(--ink-soft); }
     input[type="text"] {
       width: 100%; font: inherit; padding: 12px 12px; border: 1px solid var(--line);
       border-radius: 10px; background: var(--panel-2); color: var(--ink); -webkit-appearance: none;
     }
     @media (max-width: 520px) {
-      .batch-row { flex-wrap: wrap; }
-      .batch-row .batch-label, .batch-row .batch-vol { flex: 1 1 100%; }
+      .batch-row .batch-num { min-width: 64px; padding: 10px 6px; }
     }
     table.seg tr.stopped td { color: var(--warn); }
 
@@ -194,6 +202,16 @@
     table.seg tr.paused td { color: var(--ink-soft); }
 
     footer.app { text-align: center; color: var(--ink-soft); font-size: .78rem; margin-top: 22px; }
+    .actions-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .actions-row .btn { flex: 1 1 auto; }
+    textarea.handoff { width: 100%; font-family: var(--mono); font-size: .8rem; line-height: 1.5;
+      padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2);
+      color: var(--ink); resize: vertical; white-space: pre-wrap; }
+    .toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px);
+      background: var(--ink); color: var(--bg); font-weight: 600; font-size: .9rem; padding: 10px 16px; border-radius: 999px;
+      opacity: 0; pointer-events: none; transition: opacity .18s, transform .18s; z-index: 50; box-shadow: var(--shadow); max-width: 92vw; text-align: center; }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .shared-banner { margin-bottom: 16px; }
     .hidden { display: none !important; }
     .tz-note { text-align: center; color: var(--ink-soft); font-size: .78rem; margin-top: 8px; }
   </style>
@@ -205,6 +223,7 @@
         <h1>Pipeline Rate Change Calculator</h1>
         <p>Arrival times for liquids pipelines — with scheduled rate changes.</p>
       </div>
+      <button class="btn small hidden" id="installBtn" type="button" title="Install this calculator as an app">⬇ Install app</button>
       <button class="theme-btn" id="themeBtn" title="Toggle light / dark" aria-label="Toggle light or dark theme">◐</button>
     </header>
 
@@ -333,6 +352,23 @@
       </div>
     </section>
 
+    <div class="banner warn shared-banner hidden" id="shared-banner">Loaded a shared calculation — the numbers below came from the link you opened. Your own saved calculation was not overwritten until you change something.</div>
+
+    <div class="card" id="share-card">
+      <h2>Share &amp; Handoff</h2>
+      <div class="actions-row">
+        <button class="btn accent" id="copy-handoff" type="button">📋 Copy handoff note</button>
+        <button class="btn" id="copy-link" type="button">🔗 Copy share link</button>
+        <button class="btn hidden" id="native-share" type="button">Share…</button>
+      </div>
+      <label class="lab" for="handoff-preview">Handoff note <span class="hint">— updates live as you type; paste it into your log, text, or email to the relief</span></label>
+      <textarea class="handoff" id="handoff-preview" rows="12" readonly></textarea>
+      <label class="lab" for="share-link-field" style="margin-top:12px">Share link <span class="hint">— this exact calculation, encoded in the link itself; no account, no server, nothing uploaded</span></label>
+      <input type="text" class="share-link" id="share-link-field" readonly aria-label="Share link for this calculation" />
+      <div class="unit-readout">The handoff note stays clean for your log — the long link lives here instead. Send the link when you want the relief to open the exact numbers.</div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <div class="tz-note" id="tz-note"></div>
     <footer class="app">
       Times are 24-hour, in your device's local time zone. Calculations assume steady flow between rate changes.
@@ -449,29 +485,34 @@
 
     // ---------- upcoming-batch rows ----------
     const batchesList = $('a-batches');
-    function makeBatchRow(label = '', vol = '') {
+    function renumberBatches() {
+      [...batchesList.querySelectorAll('.batch-row')].forEach((r, i) => {
+        r.querySelector('.batch-num').textContent = 'Batch ' + (i + 2);
+      });
+    }
+    function makeBatchRow(vol = '') {
       const row = document.createElement('div');
       row.className = 'batch-row';
       row.innerHTML = `
-        <input type="text" class="batch-label" placeholder="Batch name (optional)" aria-label="Batch name" />
+        <span class="batch-num" aria-hidden="true"></span>
         <input type="number" class="batch-vol" inputmode="decimal" min="0" step="any" placeholder="volume (bbl)" aria-label="Batch volume (bbl)" />
         <button class="icon-x" type="button" title="Remove" aria-label="Remove batch">✕</button>`;
-      row.querySelector('.batch-label').value = label;
       row.querySelector('.batch-vol').value = vol;
-      row.querySelector('.batch-label').addEventListener('input', onInput);
       row.querySelector('.batch-vol').addEventListener('input', onInput);
-      row.querySelector('.icon-x').addEventListener('click', () => { row.remove(); onInput(); });
+      row.querySelector('.icon-x').addEventListener('click', () => { row.remove(); renumberBatches(); onInput(); });
       return row;
     }
     function readBatches() {
       // Keep every row in order; computeBatchSchedule ignores blank/zero volumes.
-      return [...batchesList.querySelectorAll('.batch-row')].map((row) => ({
-        label: row.querySelector('.batch-label').value,
+      // Batches are auto-named by position: the first upcoming batch is Batch 2.
+      return [...batchesList.querySelectorAll('.batch-row')].map((row, i) => ({
+        label: 'Batch ' + (i + 2),
         volume: num(row.querySelector('.batch-vol').value),
       }));
     }
     $('a-add-batch').addEventListener('click', () => {
       batchesList.appendChild(makeBatchRow());
+      renumberBatches();
       onInput();
     });
 
@@ -514,7 +555,7 @@
     }, true);
 
     // ---------- persistence ----------
-    function save() {
+    function getState() {
       const state = {
         mode,
         a: {
@@ -524,7 +565,7 @@
             rate: r.querySelector('.rate-in').value, time: readDT(r.querySelector('.time-in')),
           })),
           batches: [...batchesList.querySelectorAll('.batch-row')].map((r) => ({
-            label: r.querySelector('.batch-label').value, vol: r.querySelector('.batch-vol').value,
+            vol: r.querySelector('.batch-vol').value,
           })),
         },
         b: {
@@ -532,9 +573,31 @@
           target: readDT($('b-target')), current: $('b-current').value,
         },
       };
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {}
+      return state;
+    }
+    function save() {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(getState())); } catch {}
+    }
+    function applyState(s) {
+      mode = s.mode || 'eta';
+      const a = s.a || {}, b = s.b || {};
+      const now = new Date();
+      $('a-vol').value = a.vol ?? ''; $('a-total').value = a.total ?? ''; $('a-pumped').value = a.pumped ?? '';
+      writeDT($('a-start'), a.start || toLocalInput(now)); $('a-rate').value = a.rate ?? '';
+      changesList.innerHTML = ''; batchesList.innerHTML = '';
+      (a.changes || []).forEach((c) => changesList.appendChild(makeChangeRow(c.rate, c.time)));
+      (a.batches || []).forEach((bb) => batchesList.appendChild(makeBatchRow(bb.vol ?? bb.volume ?? '')));
+      renumberBatches();
+      $('b-vol').value = b.vol ?? ''; writeDT($('b-start'), b.start || toLocalInput(now));
+      writeDT($('b-target'), b.target); $('b-current').value = b.current ?? '';
     }
     function load() {
+      const shared = stateFromUrl();
+      if (shared) {
+        applyState(shared);
+        $('shared-banner').classList.remove('hidden');
+        return;
+      }
       let s = null;
       try { s = JSON.parse(localStorage.getItem(STORE_KEY)); } catch {}
       const now = new Date();
@@ -548,14 +611,7 @@
         writeDT($('b-target'), toLocalInput(new Date(now.getTime() + 10 * 3600000)));
         return;
       }
-      mode = s.mode || 'eta';
-      const a = s.a || {}, b = s.b || {};
-      $('a-vol').value = a.vol ?? ''; $('a-total').value = a.total ?? ''; $('a-pumped').value = a.pumped ?? '';
-      writeDT($('a-start'), a.start || toLocalInput(now)); $('a-rate').value = a.rate ?? '';
-      (a.changes || []).forEach((c) => changesList.appendChild(makeChangeRow(c.rate, c.time)));
-      (a.batches || []).forEach((bb) => batchesList.appendChild(makeBatchRow(bb.label, bb.vol)));
-      $('b-vol').value = b.vol ?? ''; writeDT($('b-start'), b.start || toLocalInput(now));
-      writeDT($('b-target'), b.target); $('b-current').value = b.current ?? '';
+      applyState(s);
     }
 
     // ---------- render ----------
@@ -576,6 +632,7 @@
         panels[k].classList.toggle('hidden', k !== mode);
       }
       if (mode === 'eta') renderEta(); else renderRate();
+      updateActions();
     }
 
     function renderEta() {
@@ -739,6 +796,177 @@
           (${formatNumber(res.hours, 2)} h)</div>
         ${deltaLine}`;
     }
+
+    // ---------- share link (state lives in the URL hash; no server) ----------
+    // Compact v2 link format: positional arrays, no repeated key names, batch
+    // labels dropped (they are auto-numbered now). Cuts a typical link by ~half.
+    // v1 links (full JSON objects) still decode below.
+    function encodeState(state) {
+      const a = state.a || {}, b = state.b || {};
+      const compact = {
+        v: 2, m: state.mode === 'rate' ? 1 : 0,
+        a: [a.vol || '', a.total || '', a.pumped || '', a.start || '', a.rate || '',
+            (a.changes || []).map((c) => [c.rate || '', c.time || '']),
+            (a.batches || []).map((x) => x.vol || '')],
+        b: [b.vol || '', b.start || '', b.target || '', b.current || ''],
+      };
+      const json = JSON.stringify(compact);
+      return btoa(String.fromCharCode(...new TextEncoder().encode(json)))
+        .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function decodeState(text) {
+      const b64 = String(text).replace(/-/g, '+').replace(/_/g, '/');
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const parsed = JSON.parse(new TextDecoder().decode(bytes));
+      if (parsed && parsed.v === 2 && Array.isArray(parsed.a)) {
+        const a = parsed.a, b = parsed.b || [];
+        return {
+          mode: parsed.m ? 'rate' : 'eta',
+          a: { vol: a[0] || '', total: a[1] || '', pumped: a[2] || '', start: a[3] || '', rate: a[4] || '',
+               changes: (a[5] || []).map((c) => ({ rate: c[0] || '', time: c[1] || '' })),
+               batches: (a[6] || []).map((v) => ({ vol: typeof v === 'object' ? (v.vol ?? '') : v })) },
+          b: { vol: b[0] || '', start: b[1] || '', target: b[2] || '', current: b[3] || '' },
+        };
+      }
+      return parsed; // v1 full-object link
+    }
+    function shareUrl() {
+      const u = new URL(location.href);
+      u.hash = 's=' + encodeState(getState());
+      u.search = '';
+      return u.toString();
+    }
+    function stateFromUrl() {
+      try {
+        const m = /(?:^#|&)s=([A-Za-z0-9_-]+)/.exec(location.hash || '');
+        if (!m) return null;
+        const s = decodeState(m[1]);
+        return s && typeof s === 'object' && (s.a || s.b) ? s : null;
+      } catch { return null; }
+    }
+
+    // ---------- handoff note ----------
+    function fmtWhen(ms) {
+      if (!Number.isFinite(ms)) return '—';
+      return `${formatClock(ms)} ${fmtDate(ms)}`;
+    }
+    function buildHandoffNote() {
+      const nowTxt = new Date().toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+      const lines = ['PIPELINE HANDOFF — Rate Change Calculator', `Generated: ${nowTxt}`, ''];
+      if (mode === 'eta') {
+        const volumeToGo = num($('a-vol').value);
+        const startMs = dtMs($('a-start'));
+        const initialRate = num($('a-rate').value);
+        const changesRaw = [...changesList.querySelectorAll('.change-row')].map((r) => ({
+          rate: num(r.querySelector('.rate-in').value), timeMs: dtMs(r.querySelector('.time-in')),
+        })).filter((c) => Number.isFinite(c.rate) && Number.isFinite(c.timeMs));
+        const batches = readBatches().filter((b) => Number.isFinite(b.volume) && b.volume > 0);
+        const res = computeSchedule({ startMs, volumeToGo, initialRate, changes: changesRaw });
+        lines.push(`Barrels to go: ${formatNumber(volumeToGo)} bbl`);
+        lines.push(`Start: ${fmtWhen(startMs)}`);
+        lines.push(`Starting rate: ${formatNumber(initialRate)} BPH (${formatNumber(bphToBpd(initialRate || 0))} BPD / ${formatNumber(bphToGpm(initialRate || 0), 1)} GPM)`);
+        if (changesRaw.length) {
+          lines.push('Rate changes:');
+          for (const c of changesRaw) lines.push(`  • ${formatNumber(c.rate)} BPH at ${fmtWhen(c.timeMs)}`);
+        } else lines.push('Rate changes: none — steady rate');
+        if (batches.length) {
+          lines.push('Upcoming batches:');
+          batches.forEach((b, i) => lines.push(`  • ${b.label && String(b.label).trim() ? b.label : 'Batch ' + (i + 2)} — ${formatNumber(b.volume)} bbl`));
+        }
+        lines.push('');
+        if (res.ok && res.arrived) {
+          lines.push(`ESTIMATED ARRIVAL: ${fmtWhen(res.arrivalMs)}`);
+          lines.push(`Arrives in: ${formatDuration(res.arrivalMs - Date.now())}  •  Total run time: ${formatDuration(res.totalHours * 3600000)} (${formatNumber(res.totalHours, 2)} h)`);
+          const batchRes = computeBatchSchedule({ startMs, volumeToGo, initialRate, changes: changesRaw, batches: readBatches() });
+          if (batchRes.ok && batchRes.rows.length > 1) {
+            lines.push('', 'Batch arrivals:');
+            for (const r of batchRes.rows) lines.push(`  • ${r.label} (${formatNumber(r.cumulative)} bbl cum.) — ${r.arrivalMs != null ? fmtWhen(r.arrivalMs) : 'never (flow stopped)'}`);
+          }
+          lines.push('', 'Segments:');
+          for (const sg of res.segments) {
+            if (sg.endMs !== null && sg.hours <= 0) continue;
+            const to = sg.isArrival ? res.arrivalMs : sg.endMs;
+            lines.push(`  • ${formatNumber(sg.rate)} BPH  ${formatClock(sg.startMs)} → ${to != null ? formatClock(to) : '—'}  (${formatNumber(sg.volume)} bbl moved, ${formatNumber(sg.remainingAfter)} left)`);
+          }
+        } else {
+          lines.push(`ESTIMATED ARRIVAL: not available — ${res.message || 'check the inputs.'}`);
+        }
+      } else {
+        const volumeToGo = num($('b-vol').value);
+        const startMs = dtMs($('b-start'));
+        const targetMs = dtMs($('b-target'));
+        const current = num($('b-current').value);
+        const res = requiredRate({ startMs, volumeToGo, targetMs });
+        lines.push('Mode: Required Rate');
+        lines.push(`Barrels to go: ${formatNumber(volumeToGo)} bbl`);
+        lines.push(`Start: ${fmtWhen(startMs)}`);
+        lines.push(`Target arrival: ${fmtWhen(targetMs)}`);
+        lines.push('');
+        if (res.ok) {
+          lines.push(`RATE NEEDED: ${formatNumber(res.rate)} BPH (${formatNumber(bphToBpd(res.rate))} BPD / ${formatNumber(bphToGpm(res.rate), 1)} GPM)`);
+          lines.push(`Time available: ${formatDuration(res.hours * 3600000)} (${formatNumber(res.hours, 2)} h)`);
+          if (Number.isFinite(current)) {
+            const d = res.rate - current;
+            lines.push(Math.abs(d) < 0.5 ? `Current rate ${formatNumber(current)} BPH — right on rate.`
+              : `Current rate ${formatNumber(current)} BPH — ${d > 0 ? 'increase' : 'reduce'} by ${formatNumber(Math.abs(d))} BPH.`);
+          }
+        } else lines.push(`RATE NEEDED: not available — ${res.message}`);
+      }
+      return lines.join('\n');
+    }
+    function updateActions() {
+      const box = $('handoff-preview');
+      if (box) box.value = buildHandoffNote();
+      const link = $('share-link-field');
+      if (link) link.value = shareUrl();
+    }
+
+    // ---------- clipboard / share / toast ----------
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+    }
+    async function copyText(text, okMsg) {
+      try { await navigator.clipboard.writeText(text); toast(okMsg); return; }
+      catch {}
+      const box = $('handoff-preview');
+      const prev = box.value;
+      box.value = text; box.removeAttribute('readonly'); box.select();
+      try { document.execCommand('copy'); toast(okMsg); } catch { toast('Copy the text from the box below.'); }
+      box.value = prev; box.setAttribute('readonly', '');
+    }
+    $('copy-handoff').addEventListener('click', () => copyText(buildHandoffNote(), 'Handoff note copied'));
+    $('copy-link').addEventListener('click', () => copyText(shareUrl(), 'Share link copied'));
+    if (navigator.share) {
+      const btn = $('native-share');
+      btn.classList.remove('hidden');
+      btn.addEventListener('click', async () => {
+        try { await navigator.share({ title: 'Pipeline Rate Change Calculator', text: buildHandoffNote(), url: shareUrl() }); } catch {}
+      });
+    }
+
+    // ---------- PWA: offline + install ----------
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => {}); });
+    }
+    let deferredInstall = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstall = e;
+      $('installBtn').classList.remove('hidden');
+    });
+    $('installBtn').addEventListener('click', async () => {
+      if (!deferredInstall) return;
+      deferredInstall.prompt();
+      await deferredInstall.userChoice;
+      deferredInstall = null;
+      $('installBtn').classList.add('hidden');
+    });
+    window.addEventListener('appinstalled', () => $('installBtn').classList.add('hidden'));
 
     // ---------- wiring ----------
     function onInput() {
