@@ -104,12 +104,19 @@
     .row > * { min-width: 0; }
     .grow { flex: 1; }
 
-    input[type="number"], input[type="datetime-local"] {
+    input[type="number"], input[type="date"] {
       width: 100%; font: inherit; font-variant-numeric: tabular-nums;
       padding: 12px 12px; border: 1px solid var(--line); border-radius: 10px;
       background: var(--panel-2); color: var(--ink); -webkit-appearance: none;
     }
     input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+    /* Date picker + 24-hour HH:MM text box (native time pickers show AM/PM on US devices). */
+    .dt { display: flex; gap: 8px; min-width: 0; }
+    .dt .dt-date { flex: 1 1 auto; min-width: 0; }
+    .dt .dt-time { flex: 0 0 4.5em; padding-left: 6px; padding-right: 6px; text-align: center;
+      font-variant-numeric: tabular-nums; }
+    .dt .dt-time:not(:focus):invalid { border-color: var(--warn); color: var(--warn); }
     .unit-readout { color: var(--ink-soft); font-size: .8rem; margin-top: 6px; font-variant-numeric: tabular-nums; }
 
     button.btn {
@@ -231,9 +238,12 @@
         </div>
 
         <div class="field">
-          <label class="lab" for="a-start">Start time <span class="hint">— when the product is this far out</span></label>
+          <label class="lab" for="a-start-time">Start time <span class="hint">— when the product is this far out (24-hour)</span></label>
           <div class="row">
-            <input type="datetime-local" id="a-start" class="grow" />
+            <div class="dt grow" id="a-start">
+              <input type="date" class="dt-date" aria-label="Start date" />
+              <input type="text" class="dt-time" id="a-start-time" inputmode="numeric" maxlength="5" placeholder="HH:MM" pattern="([01]?\d|2[0-3]):[0-5]\d" autocomplete="off" />
+            </div>
             <button class="btn small" id="a-start-now" type="button">Now</button>
           </div>
         </div>
@@ -296,15 +306,21 @@
           <input type="number" id="b-vol" inputmode="decimal" min="0" step="any" placeholder="e.g. 50000" />
         </div>
         <div class="field">
-          <label class="lab" for="b-start">Start time</label>
+          <label class="lab" for="b-start-time">Start time <span class="hint">— 24-hour</span></label>
           <div class="row">
-            <input type="datetime-local" id="b-start" class="grow" />
+            <div class="dt grow" id="b-start">
+              <input type="date" class="dt-date" aria-label="Start date" />
+              <input type="text" class="dt-time" id="b-start-time" inputmode="numeric" maxlength="5" placeholder="HH:MM" pattern="([01]?\d|2[0-3]):[0-5]\d" autocomplete="off" />
+            </div>
             <button class="btn small" id="b-start-now" type="button">Now</button>
           </div>
         </div>
         <div class="field">
-          <label class="lab" for="b-target">Target arrival time</label>
-          <input type="datetime-local" id="b-target" />
+          <label class="lab" for="b-target-time">Target arrival time <span class="hint">— 24-hour</span></label>
+          <div class="dt" id="b-target">
+            <input type="date" class="dt-date" aria-label="Target arrival date" />
+            <input type="text" class="dt-time" id="b-target-time" inputmode="numeric" maxlength="5" placeholder="HH:MM" pattern="([01]?\d|2[0-3]):[0-5]\d" autocomplete="off" />
+          </div>
         </div>
         <div class="field">
           <label class="lab" for="b-current">Current rate (BPH) <span class="hint">— optional, to show the change needed</span></label>
@@ -319,7 +335,7 @@
 
     <div class="tz-note" id="tz-note"></div>
     <footer class="app">
-      Times shown in your device's local time zone. Calculations assume steady flow between rate changes.
+      Times are 24-hour, in your device's local time zone. Calculations assume steady flow between rate changes.
     </footer>
   </div>
 
@@ -327,6 +343,7 @@
     import {
       computeSchedule, computeBatchSchedule, steadyArrivalMs, requiredRate,
       formatDuration, formatNumber, bphToBpd, bphToGpm,
+      maskTime, normalizeTime, parseLocalDateTime, formatClock,
     } from './calc.js';
 
     function escapeHtml(s) {
@@ -342,15 +359,19 @@
     function toLocalInput(d) {
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
-    function parseLocalInput(v) {
-      if (!v) return NaN;
-      const ms = new Date(v).getTime();
-      return Number.isFinite(ms) ? ms : NaN;
+    // Each date/time is a .dt box: a native date picker + a 24-hour HH:MM text box.
+    // Its value is read/written as "YYYY-MM-DDTHH:MM", the same shape saved state uses.
+    function readDT(box) {
+      const d = box.querySelector('.dt-date').value;
+      const t = box.querySelector('.dt-time').value;
+      return d || t ? `${d}T${t}` : '';
     }
-    function fmtClock(ms) {
-      // 24-hour clock (e.g. 22:00), regardless of locale default.
-      return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    function writeDT(box, v) {
+      const [d = '', t = ''] = String(v || '').split('T');
+      box.querySelector('.dt-date').value = d;
+      box.querySelector('.dt-time').value = normalizeTime(t);
     }
+    const dtMs = (box) => parseLocalDateTime(readDT(box));
     function fmtDate(ms) {
       return new Date(ms).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
     }
@@ -398,10 +419,13 @@
       row.innerHTML = `
         <input type="number" class="rate-in" inputmode="decimal" min="0" step="any" placeholder="new BPH" aria-label="New rate (BPH)" />
         <span class="at">at</span>
-        <input type="datetime-local" class="time-in" aria-label="Effective time" />
+        <div class="dt time-in">
+          <input type="date" class="dt-date" aria-label="Effective date" />
+          <input type="text" class="dt-time" inputmode="numeric" maxlength="5" placeholder="HH:MM" pattern="([01]?\\d|2[0-3]):[0-5]\\d" autocomplete="off" aria-label="Effective time (24-hour)" />
+        </div>
         <button class="icon-x" type="button" title="Remove" aria-label="Remove rate change">✕</button>`;
       row.querySelector('.rate-in').value = rate;
-      row.querySelector('.time-in').value = time;
+      writeDT(row.querySelector('.time-in'), time);
       row.querySelector('.rate-in').addEventListener('input', onInput);
       row.querySelector('.time-in').addEventListener('input', onInput);
       row.querySelector('.icon-x').addEventListener('click', () => { row.remove(); onInput(); });
@@ -411,14 +435,14 @@
       const out = [];
       for (const row of changesList.querySelectorAll('.change-row')) {
         const rate = num(row.querySelector('.rate-in').value);
-        const timeMs = parseLocalInput(row.querySelector('.time-in').value);
+        const timeMs = dtMs(row.querySelector('.time-in'));
         if (Number.isFinite(rate) && Number.isFinite(timeMs)) out.push({ rate, timeMs });
       }
       return out;
     }
     $('a-add-change').addEventListener('click', () => {
       // default the new change time to the start time (or now)
-      const startMs = parseLocalInput($('a-start').value) || Date.now();
+      const startMs = dtMs($('a-start')) || Date.now();
       changesList.appendChild(makeChangeRow('', toLocalInput(new Date(startMs))));
       onInput();
     });
@@ -468,8 +492,26 @@
     }
 
     // ---------- "Now" buttons ----------
-    $('a-start-now').addEventListener('click', () => { $('a-start').value = toLocalInput(new Date()); onInput(); });
-    $('b-start-now').addEventListener('click', () => { $('b-start').value = toLocalInput(new Date()); onInput(); });
+    $('a-start-now').addEventListener('click', () => { writeDT($('a-start'), toLocalInput(new Date())); onInput(); });
+    $('b-start-now').addEventListener('click', () => { writeDT($('b-start'), toLocalInput(new Date())); onInput(); });
+
+    // ---------- 24-hour time boxes ----------
+    // Capture phase, so the text is tidied before the field's own input handler recomputes.
+    document.addEventListener('input', (e) => {
+      const el = e.target;
+      if (!el.classList.contains('dt-time')) return;
+      const masked = maskTime(el.value); // "1532" -> "15:32" as it's typed
+      if (masked !== el.value) el.value = masked;
+    }, true);
+    document.addEventListener('change', (e) => {
+      const el = e.target;
+      if (!el.classList.contains('dt-time')) return;
+      const tidy = normalizeTime(el.value); // on leaving the box: "9:05" -> "09:05", "7" -> "07:00"
+      if (tidy !== el.value) {
+        el.value = tidy;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }, true);
 
     // ---------- persistence ----------
     function save() {
@@ -477,17 +519,17 @@
         mode,
         a: {
           vol: $('a-vol').value, total: $('a-total').value, pumped: $('a-pumped').value,
-          start: $('a-start').value, rate: $('a-rate').value,
+          start: readDT($('a-start')), rate: $('a-rate').value,
           changes: [...changesList.querySelectorAll('.change-row')].map((r) => ({
-            rate: r.querySelector('.rate-in').value, time: r.querySelector('.time-in').value,
+            rate: r.querySelector('.rate-in').value, time: readDT(r.querySelector('.time-in')),
           })),
           batches: [...batchesList.querySelectorAll('.batch-row')].map((r) => ({
             label: r.querySelector('.batch-label').value, vol: r.querySelector('.batch-vol').value,
           })),
         },
         b: {
-          vol: $('b-vol').value, start: $('b-start').value,
-          target: $('b-target').value, current: $('b-current').value,
+          vol: $('b-vol').value, start: readDT($('b-start')),
+          target: readDT($('b-target')), current: $('b-current').value,
         },
       };
       try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch {}
@@ -499,21 +541,21 @@
       if (!s) {
         // First-run example so the tool is immediately understandable.
         $('a-vol').value = 50000;
-        $('a-start').value = toLocalInput(now);
+        writeDT($('a-start'), toLocalInput(now));
         $('a-rate').value = 5000;
         $('b-vol').value = 50000;
-        $('b-start').value = toLocalInput(now);
-        $('b-target').value = toLocalInput(new Date(now.getTime() + 10 * 3600000));
+        writeDT($('b-start'), toLocalInput(now));
+        writeDT($('b-target'), toLocalInput(new Date(now.getTime() + 10 * 3600000)));
         return;
       }
       mode = s.mode || 'eta';
       const a = s.a || {}, b = s.b || {};
       $('a-vol').value = a.vol ?? ''; $('a-total').value = a.total ?? ''; $('a-pumped').value = a.pumped ?? '';
-      $('a-start').value = a.start || toLocalInput(now); $('a-rate').value = a.rate ?? '';
+      writeDT($('a-start'), a.start || toLocalInput(now)); $('a-rate').value = a.rate ?? '';
       (a.changes || []).forEach((c) => changesList.appendChild(makeChangeRow(c.rate, c.time)));
       (a.batches || []).forEach((bb) => batchesList.appendChild(makeBatchRow(bb.label, bb.vol)));
-      $('b-vol').value = b.vol ?? ''; $('b-start').value = b.start || toLocalInput(now);
-      $('b-target').value = b.target || ''; $('b-current').value = b.current ?? '';
+      $('b-vol').value = b.vol ?? ''; writeDT($('b-start'), b.start || toLocalInput(now));
+      writeDT($('b-target'), b.target); $('b-current').value = b.current ?? '';
     }
 
     // ---------- render ----------
@@ -538,7 +580,7 @@
 
     function renderEta() {
       const volumeToGo = num($('a-vol').value);
-      const startMs = parseLocalInput($('a-start').value);
+      const startMs = dtMs($('a-start'));
       const initialRate = num($('a-rate').value);
       const changes = readChanges();
       const batches = readBatches();
@@ -576,14 +618,14 @@
         } else {
           const cls = delta > 0 ? 'delta-later' : 'delta-earlier';
           const word = delta > 0 ? 'later' : 'earlier';
-          compare = `vs. holding ${formatNumber(initialRate)} BPH (ETA ${fmtClock(steady)}): ` +
+          compare = `vs. holding ${formatNumber(initialRate)} BPH (ETA ${formatClock(steady)}): ` +
                     `<span class="${cls}">${absTxt} ${word}</span>`;
         }
       }
 
       out.innerHTML = `
         <div class="kicker">Estimated arrival</div>
-        <div class="eta">${fmtClock(res.arrivalMs)}</div>
+        <div class="eta">${formatClock(res.arrivalMs)}</div>
         <div class="eta-date">${fmtDate(res.arrivalMs)}</div>
         <div class="countdown" id="a-countdown"></div>
         <div class="summary-line">Total run time: <strong>${formatDuration(res.totalHours * 3600000)}</strong>
@@ -605,7 +647,7 @@
       tbody.innerHTML = rows.map((r) => {
         const arrived = r.arrivalMs != null;
         const eta = arrived
-          ? `${fmtClock(r.arrivalMs)} <span style="color:var(--ink-soft)">${fmtDate(r.arrivalMs)}</span>`
+          ? `${formatClock(r.arrivalMs)} <span style="color:var(--ink-soft)">${fmtDate(r.arrivalMs)}</span>`
           : 'never';
         return `<tr class="${arrived ? '' : 'stopped'}">
           <td>${escapeHtml(r.label)}</td>
@@ -634,8 +676,8 @@
         const cls = s.isArrival ? 'arrival' : (s.rate === 0 ? 'paused' : '');
         rows.push(`<tr class="${cls}">
           <td>${formatNumber(s.rate)}</td>
-          <td>${fmtClock(from)}</td>
-          <td>${to != null ? fmtClock(to) : '—'}</td>
+          <td>${formatClock(from)}</td>
+          <td>${to != null ? formatClock(to) : '—'}</td>
           <td>${to != null ? formatDuration(durMs) : '—'}</td>
           <td>${formatNumber(s.volume)}</td>
           <td>${formatNumber(s.remainingAfter)}</td>
@@ -663,8 +705,8 @@
 
     function renderRate() {
       const volumeToGo = num($('b-vol').value);
-      const startMs = parseLocalInput($('b-start').value);
-      const targetMs = parseLocalInput($('b-target').value);
+      const startMs = dtMs($('b-start'));
+      const targetMs = dtMs($('b-target'));
       const current = num($('b-current').value);
       const res = requiredRate({ startMs, volumeToGo, targetMs });
       const out = $('b-result');

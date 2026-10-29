@@ -39,7 +39,9 @@ current rate and it tells you how much to increase or reduce.
 - A segment at rate `Q` (BPH) lasting `t` hours moves `Q × t` barrels; the engine
   walks the segments until the running total reaches the volume to go, then solves
   for the exact arrival moment inside the final segment.
-- All times use your **device's local time zone**.
+- All times are **24-hour (HH:MM)** in your **device's local time zone**. Times are
+  typed into a plain text box rather than the browser's time picker (which shows AM/PM
+  on US devices); typing `1532` gives `15:32`, so no colon key is needed on a phone.
 
 The calculation engine lives in [`calc.js`](calc.js) as pure, dependency-free
 functions and is covered by unit tests in [`calc.test.mjs`](calc.test.mjs).

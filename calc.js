@@ -293,10 +293,69 @@ export function formatNumber(n, decimals = 0) {
   });
 }
 
+// ---- 24-hour time entry -----------------------------------------------------
+//
+// Clock times are always entered and shown as 24-hour HH:MM. Native time pickers follow
+// the device's 12/24-hour setting (AM/PM on US devices), so the UI takes times in a plain
+// text box and these helpers keep that text in 24-hour form.
+
+/**
+ * Shape free typing into "H:MM" / "HH:MM" so no colon key is needed (phone number pads
+ * don't have one): "1532" -> "15:32", "905" -> "9:05". An explicitly typed colon is kept.
+ */
+export function maskTime(raw) {
+  const s = String(raw).replace(/[^\d:]/g, '');
+  const colon = s.indexOf(':');
+  if (colon >= 0) {
+    return s.slice(0, colon).slice(0, 2) + ':' + s.slice(colon + 1).replace(/:/g, '').slice(0, 2);
+  }
+  // Two leading digits are the hour only if they make a valid one ("15"), else it's "9" + minutes.
+  const hourLen = s.length >= 2 && Number(s.slice(0, 2)) <= 23 ? 2 : 1;
+  return s.length > hourLen ? s.slice(0, hourLen) + ':' + s.slice(hourLen, hourLen + 2) : s;
+}
+
+/** Parse 24-hour "H:MM" / "HH:MM" -> { hours, minutes }, or null if it isn't a valid time. */
+export function parseTime(text) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(text).trim());
+  if (!m) return null;
+  const hours = Number(m[1]);
+  const minutes = Number(m[2]);
+  return hours <= 23 && minutes <= 59 ? { hours, minutes } : null;
+}
+
+/**
+ * Tidy a finished entry to "HH:MM": "9:05" -> "09:05", and a bare hour "7" -> "07:00".
+ * Anything that isn't a valid time is returned unchanged.
+ */
+export function normalizeTime(text) {
+  const s = String(text).trim();
+  const t = parseTime(/^\d{1,2}$/.test(s) ? s + ':00' : s);
+  return t ? pad2(t.hours) + ':' + pad2(t.minutes) : text;
+}
+
+/** Local "YYYY-MM-DDTHH:MM" (24-hour) -> epoch ms in the device's time zone, or NaN. */
+export function parseLocalDateTime(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(.*)$/.exec(String(value || ''));
+  const t = m && parseTime(m[4]);
+  if (!t) return NaN;
+  const ms = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), t.hours, t.minutes).getTime();
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+/** Epoch ms -> 24-hour "HH:MM" in the device's time zone (never AM/PM, whatever the locale). */
+export function formatClock(ms) {
+  const d = new Date(ms);
+  return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+
 // ---- internal ---------------------------------------------------------------
 
 function isFiniteNumber(n) {
   return typeof n === 'number' && Number.isFinite(n);
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
 }
 
 function invalid(message) {
