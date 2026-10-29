@@ -7,6 +7,11 @@ import {
   steadyArrivalMs,
   requiredRate,
   formatDuration,
+  maskTime,
+  parseTime,
+  normalizeTime,
+  parseLocalDateTime,
+  formatClock,
   bphToBpd,
   bphToGpm,
   MS_PER_HOUR,
@@ -238,4 +243,54 @@ test('formatDuration renders days/hours/minutes and seconds', () => {
   assert.equal(formatDuration(45000), '45s');
   assert.equal(formatDuration(0), '0s');
   assert.equal(formatDuration(-h(1)), '-1h');
+});
+
+test('maskTime builds 24-hour HH:MM from bare digits, keystroke by keystroke', () => {
+  const typed = (keys) => [...keys].reduce((v, k) => maskTime(v + k), '');
+  assert.equal(typed('1532'), '15:32');
+  assert.equal(typed('0905'), '09:05');
+  assert.equal(typed('905'), '9:05'); // "90" isn't an hour, so it's 9 + minutes
+  assert.equal(typed('2359'), '23:59');
+  assert.equal(typed('15:32'), '15:32'); // typed colon is kept, not doubled
+  assert.equal(typed('9:05'), '9:05');
+  assert.equal(typed('15323'), '15:32'); // extra digits dropped
+  assert.equal(maskTime('15:'), '15:'); // backspacing through the colon
+  assert.equal(maskTime('15'), '15');
+  assert.equal(maskTime('3:32 PM'), '3:32'); // letters stripped
+});
+
+test('parseTime accepts only valid 24-hour times', () => {
+  assert.deepEqual(parseTime('15:32'), { hours: 15, minutes: 32 });
+  assert.deepEqual(parseTime('9:05'), { hours: 9, minutes: 5 });
+  assert.deepEqual(parseTime('00:00'), { hours: 0, minutes: 0 });
+  assert.equal(parseTime('24:00'), null);
+  assert.equal(parseTime('12:60'), null);
+  assert.equal(parseTime('15:3'), null); // still being typed
+  assert.equal(parseTime('15'), null);
+  assert.equal(parseTime(''), null);
+});
+
+test('normalizeTime pads to HH:MM and leaves bad entries alone', () => {
+  assert.equal(normalizeTime('15:32'), '15:32');
+  assert.equal(normalizeTime('9:05'), '09:05');
+  assert.equal(normalizeTime('7'), '07:00');
+  assert.equal(normalizeTime('15'), '15:00');
+  assert.equal(normalizeTime('15:3'), '15:3');
+  assert.equal(normalizeTime('25:00'), '25:00');
+  assert.equal(normalizeTime(''), '');
+});
+
+test('parseLocalDateTime reads a local 24-hour date-time', () => {
+  assert.equal(parseLocalDateTime('2026-10-29T15:32'), new Date(2026, 9, 29, 15, 32).getTime());
+  assert.equal(parseLocalDateTime('2026-10-29T9:05'), new Date(2026, 9, 29, 9, 5).getTime());
+  assert.ok(Number.isNaN(parseLocalDateTime('2026-10-29T15:3')));
+  assert.ok(Number.isNaN(parseLocalDateTime('2026-10-29T')));
+  assert.ok(Number.isNaN(parseLocalDateTime('T15:32')));
+  assert.ok(Number.isNaN(parseLocalDateTime('')));
+});
+
+test('formatClock is always 24-hour, including around midnight', () => {
+  assert.equal(formatClock(new Date(2026, 9, 29, 15, 32).getTime()), '15:32');
+  assert.equal(formatClock(new Date(2026, 9, 29, 0, 5).getTime()), '00:05');
+  assert.equal(formatClock(new Date(2026, 9, 29, 9, 7, 59).getTime()), '09:07');
 });
