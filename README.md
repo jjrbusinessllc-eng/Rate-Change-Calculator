@@ -54,6 +54,8 @@ functions and is covered by unit tests in [`calc.test.mjs`](calc.test.mjs).
 | `calc.js` | Pure calculation engine (ES module), imported by the UI and the tests. |
 | `calc.test.mjs` | Unit tests for the engine. |
 | `netlify.toml` | Static-deploy config (publish from repo root). |
+| `manifest.webmanifest`, `icon-*.png` | PWA manifest and app icons (Add to Home Screen). |
+| `sw.js` | Service worker for offline use. Bump `CACHE` on each shipped change. |
 
 ## Local development
 
