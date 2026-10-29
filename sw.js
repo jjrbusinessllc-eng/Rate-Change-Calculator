@@ -1,6 +1,6 @@
 // Service worker — offline-first for the calculator's own files.
 // Bump CACHE when shipping a new version so installed apps pick it up.
-const CACHE = 'rcc-v2-1';
+const CACHE = 'rcc-v2.1-1';
 const ASSETS = [
   './',
   './index.html',
